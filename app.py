@@ -1,75 +1,72 @@
 import streamlit as st
 import pandas as pd
 import sqlite3
-from datetime import datetime
 
-# --- CẤU HÌNH DỮ LIỆU ---
-FLAGS = {"Mexico": "🇲🇽", "South Africa": "🇿🇦", "South Korea": "🇰🇷", "Czechia": "🇨🇿", "Brazil": "🇧🇷", "Morocco": "🇲🇦"}
-MATCH_LIST = [
-    {"group": "Bảng A", "date": "12/06", "time": "02:00", "home": "Mexico", "away": "South Africa"},
-    {"group": "Bảng A", "date": "12/06", "time": "20:00", "home": "South Korea", "away": "Czechia"}
-]
-
-# --- DATABASE ---
-conn = sqlite3.connect('wc2026_v8.db', check_same_thread=False)
+# Cấu hình DB
+conn = sqlite3.connect('wc2026_v9.db', check_same_thread=False)
 c = conn.cursor()
-c.execute('''CREATE TABLE IF NOT EXISTS users (name TEXT PRIMARY KEY, pin TEXT)''')
-c.execute('''CREATE TABLE IF NOT EXISTS predictions_1x2 (name TEXT, match_id TEXT, res TEXT, ts TEXT, UNIQUE(name, match_id))''')
-c.execute('''CREATE TABLE IF NOT EXISTS match_results (match_id TEXT PRIMARY KEY, actual_1x2 TEXT)''')
+c.execute('CREATE TABLE IF NOT EXISTS users (name TEXT PRIMARY KEY, pin TEXT)')
+c.execute('CREATE TABLE IF NOT EXISTS preds (name TEXT, match_id TEXT, res TEXT, UNIQUE(name, match_id))')
+c.execute('CREATE TABLE IF NOT EXISTS results (match_id TEXT PRIMARY KEY, res TEXT)')
 conn.commit()
 
-# --- HÀM GIAO DIỆN ---
-def get_user_data(): return pd.read_sql_query("SELECT * FROM users", conn)
+# Cờ và Lịch
+FLAGS = {"Mexico": "🇲🇽", "South Africa": "🇿🇦", "South Korea": "🇰🇷", "Czechia": "🇨🇿"}
+MATCHES = [
+    {"id": "M1", "home": "Mexico", "away": "South Africa", "time": "12/06 02:00"},
+    {"id": "M2", "home": "South Korea", "away": "Czechia", "time": "12/06 20:00"}
+]
 
-st.set_page_config(page_title="World Cup 2026 Betting", layout="wide")
-st.title("⚽ World Cup 2026 Betting")
+st.set_page_config(page_title="World Cup 2026", layout="centered")
 
-# Sidebar
-user_df = get_user_data()
-if not user_df.empty:
-    user_login = st.sidebar.selectbox("Chọn thành viên:", user_df['name'].tolist())
-    user_pin = st.sidebar.text_input("Nhập PIN:", type="password")
-    is_logged_in = (user_pin == user_df[user_df['name']==user_login]['pin'].values[0])
-else: is_logged_in = False
+# --- QUẢN LÝ ĐĂNG NHẬP ---
+if 'logged_in' not in st.session_state: st.session_state.logged_in = False
+if 'user' not in st.session_state: st.session_state.user = ""
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["🎮 Đặt cược", "📜 Lịch sử", "🏆 Xếp hạng", "⚙️ Đổi PIN", "👑 Admin"])
+if not st.session_state.logged_in:
+    st.title("⚽ Đăng nhập hệ thống")
+    users = pd.read_sql("SELECT * FROM users", conn)
+    user = st.selectbox("Chọn tên:", users['name'].tolist())
+    pin = st.text_input("Nhập PIN:", type="password")
+    if st.button("Đăng nhập"):
+        correct_pin = users[users['name'] == user]['pin'].values[0]
+        if pin == correct_pin:
+            st.session_state.logged_in = True
+            st.session_state.user = user
+            st.rerun()
+        else: st.error("Sai PIN!")
+    st.stop()
+
+# --- GIAO DIỆN KHI ĐÃ ĐĂNG NHẬP ---
+st.header(f"Chào {st.session_state.user}!")
+if st.button("Đăng xuất"):
+    st.session_state.logged_in = False
+    st.rerun()
+
+tab1, tab2, tab3 = st.tabs(["🎮 Đặt cược", "📊 Bảng xếp hạng", "👑 Admin"])
 
 with tab1:
-    if is_logged_in:
-        m_opts = {f"{m['date']} {m['time']} - {m['home']} vs {m['away']}": m for m in MATCH_LIST}
-        s_m = st.selectbox("Chọn trận:", list(m_opts.keys()))
-        m_i = m_opts[s_m]
-        st.markdown(f"### {FLAGS.get(m_i['home'], '')} {m_i['home']} vs {m_i['away']} {FLAGS.get(m_i['away'], '')}")
-        res = st.radio("Dự đoán:", [f"{m_i['home']} thắng", "Hòa", f"{m_i['away']} thắng"], horizontal=True)
-        if st.button("Chốt cược"):
-            c.execute("REPLACE INTO predictions_1x2 VALUES (?,?,?,?)", (user_login, s_m, res, str(datetime.now())))
+    st.subheader("Lịch thi đấu & Dự đoán")
+    for m in MATCHES:
+        col1, col2, col3 = st.columns([2, 1, 2])
+        col1.markdown(f"### {FLAGS.get(m['home'])} {m['home']}")
+        col2.write(f"vs\n{m['time']}")
+        col3.markdown(f"### {m['away']} {FLAGS.get(m['away'])}")
+        
+        pick = st.radio(f"Dự đoán trận {m['id']}:", ["Thắng", "Hòa", "Thua"], horizontal=True, key=m['id'])
+        if st.button(f"Gửi dự đoán {m['id']}"):
+            c.execute("REPLACE INTO preds VALUES (?,?,?)", (st.session_state.user, m['id'], pick))
             conn.commit(); st.success("Đã ghi nhận!")
-    else: st.info("Vui lòng đăng nhập.")
+
+with tab2:
+    st.subheader("Bảng xếp hạng")
+    # Hiển thị thống kê từ DB...
+    st.write("Đang tải dữ liệu...")
 
 with tab3:
-    st.subheader("Bảng xếp hạng")
-    # Tính điểm và hiển thị...
-
-with tab4:
-    if is_logged_in:
-        new_pin = st.text_input("PIN mới:", type="password")
-        if st.button("Đổi PIN"):
-            c.execute("UPDATE users SET pin=? WHERE name=?", (new_pin, user_login))
-            conn.commit(); st.success("Đã đổi!")
-
-with tab5:
-    pw = st.text_input("Mật khẩu Admin:", type="password")
-    if pw == "admin123":
+    if st.text_input("Mật khẩu Admin:", type="password") == "admin123":
         st.subheader("Quản lý thành viên")
-        # Form thêm/sửa/xóa thành viên
-        new_name = st.text_input("Tên thành viên mới:")
-        if st.button("Thêm"):
+        new_name = st.text_input("Tên mới:")
+        if st.button("Thêm thành viên"):
             c.execute("INSERT INTO users VALUES (?,?)", (new_name, "1234"))
             conn.commit(); st.rerun()
-        
-        st.subheader("Cập nhật kết quả trận đấu")
-        m_select = st.selectbox("Chọn trận:", list(m_opts.keys()))
-        final_res = st.radio("Kết quả thực tế:", [f"{m_opts[m_select]['home']} thắng", "Hòa", f"{m_opts[m_select]['away']} thắng"])
-        if st.button("Lưu kết quả"):
-            c.execute("REPLACE INTO match_results VALUES (?,?)", (m_select, final_res))
-            conn.commit(); st.success("Đã cập nhật!")
