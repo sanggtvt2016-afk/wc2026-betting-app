@@ -6,16 +6,12 @@ from datetime import datetime
 # ==========================================
 # 1. CẤU HÌNH DỮ LIỆU & LỊCH THI ĐẤU
 # ==========================================
-
-# Mặc định danh sách người chơi ban đầu
 DEFAULT_USERS = {
     "SANG": "1111", "THẮNG": "2222", "HẢI": "3333", "AN": "4444", 
     "QUANG": "5555", "TRIỀU": "6666", "Q.TRUNG": "7777", 
     "KHÁCH 1": "8888", "KHÁCH 2": "9999", "KHÁCH 3": "0000"
 }
 
-# Lịch thi đấu phân theo 12 Bảng (Bảng A đến Bảng L - 48 đội)
-# Bạn có thể tự thêm các trận đấu khác theo cấu trúc này
 MATCH_DATA = {
     "Bảng A": ["Mexico vs South Africa", "South Korea vs Czechia"],
     "Bảng B": ["Canada vs Bosnia & Herzegovina"],
@@ -32,27 +28,24 @@ MATCH_DATA = {
 }
 
 # ==========================================
-# 2. KHỞI TẠO CƠ SỞ DỮ LIỆU TỰ ĐỘNG
+# 2. KHỞI TẠO CƠ SỞ DỮ LIỆU (Bản V3)
 # ==========================================
-conn = sqlite3.connect('wc2026_v2.db', check_same_thread=False)
+# Tạo file DB mới để không bị lỗi với phiên bản cũ
+conn = sqlite3.connect('wc2026_v3.db', check_same_thread=False)
 c = conn.cursor()
 
-# Bảng người chơi (để lưu PIN có thể thay đổi)
 c.execute('''CREATE TABLE IF NOT EXISTS users (name TEXT PRIMARY KEY, pin TEXT)''')
-# Bảng dự đoán
-c.execute('''CREATE TABLE IF NOT EXISTS predictions (name TEXT, match TEXT, home_score INTEGER, away_score INTEGER, timestamp TEXT, UNIQUE(name, match))''')
-# Bảng kết quả thật (Admin cập nhật)
-c.execute('''CREATE TABLE IF NOT EXISTS match_results (match TEXT PRIMARY KEY, home_score INTEGER, away_score INTEGER)''')
+# Thay đổi home_score, away_score thành predicted_result (Lưu kết quả dạng text)
+c.execute('''CREATE TABLE IF NOT EXISTS predictions (name TEXT, match TEXT, predicted_result TEXT, timestamp TEXT, UNIQUE(name, match))''')
+c.execute('''CREATE TABLE IF NOT EXISTS match_results (match TEXT PRIMARY KEY, actual_result TEXT)''')
 conn.commit()
 
-# Nạp dữ liệu user mặc định nếu DB trống
 c.execute("SELECT COUNT(*) FROM users")
 if c.fetchone()[0] == 0:
     for name, pin in DEFAULT_USERS.items():
         c.execute("INSERT INTO users (name, pin) VALUES (?, ?)", (name, pin))
     conn.commit()
 
-# Hàm lấy danh sách user từ DB
 def get_users():
     return {row[0]: row[1] for row in c.execute("SELECT name, pin FROM users").fetchall()}
 
@@ -61,26 +54,17 @@ users_db = get_users()
 # ==========================================
 # 3. HÀM TÍNH ĐIỂM LOGIC
 # ==========================================
-def calculate_points(pred_home, pred_away, actual_home, actual_away):
-    # Trúng phóc tỷ số
-    if pred_home == actual_home and pred_away == actual_away:
-        return 3
-    
-    # Tính Thắng/Thua/Hòa
-    pred_diff = pred_home - pred_away
-    actual_diff = actual_home - actual_away
-    
-    # Trúng kết quả Thắng/Thua/Hòa nhưng sai tỷ số
-    if (pred_diff > 0 and actual_diff > 0) or (pred_diff < 0 and actual_diff < 0) or (pred_diff == 0 and actual_diff == 0):
-        return 1
-        
-    return 0 # Sai hoàn toàn
+def calculate_points(pred, actual):
+    if pd.isna(actual) or actual == "":
+        return 0
+    return 3 if pred == actual else 0
 
 # ==========================================
 # 4. GIAO DIỆN CHÍNH
 # ==========================================
 st.set_page_config(page_title="WC 2026 - Dự Đoán", page_icon="⚽", layout="wide")
 st.markdown("<h1 style='text-align: center; color: #22c55e;'>🏆 ĐẤU TRƯỜNG WORLD CUP 2026</h1>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center;'>Chế độ chốt kèo: Thắng - Hòa - Thua (Trúng = 3 điểm)</p>", unsafe_allow_html=True)
 st.divider()
 
 # --- SIDEBAR: ĐĂNG NHẬP ---
@@ -90,13 +74,12 @@ user_pin = st.sidebar.text_input("🔑 Nhập mã PIN:", type="password")
 
 is_logged_in = (user_pin == users_db[user_login])
 
-# --- TABS GIAO DIỆN ---
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["🎮 Chốt Kèo", "👀 Xem Lịch Sử", "📊 Bảng Xếp Hạng", "⚙️ Đổi PIN", "👑 Dành cho Admin"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["🎮 Chốt Kèo", "👀 Xem Lịch Sử", "📊 Bảng Xếp Hạng", "⚙️ Đổi PIN", "👑 Khu vực Admin"])
 
 # ----------------- TAB 1: CHỐT KÈO -----------------
 with tab1:
     if is_logged_in:
-        st.subheader(f"👋 Xin chào {user_login}! Tiến hành chốt kèo.")
+        st.subheader(f"👋 Xin chào {user_login}! Hôm nay tin tưởng đội nào?")
         
         col_grp, col_mtc = st.columns(2)
         with col_grp:
@@ -106,18 +89,18 @@ with tab1:
             
         home_team, away_team = selected_match.split(" vs ")
         
-        c1, c2, c3, c4 = st.columns([2, 1, 1, 2])
-        with c1: st.markdown(f"<h3 style='text-align: right;'>{home_team}</h3>", unsafe_allow_html=True)
-        with c2: home_s = st.number_input("Chủ nhà", min_value=0, step=1, key="home")
-        with c3: away_s = st.number_input("Đội khách", min_value=0, step=1, key="away")
-        with c4: st.markdown(f"<h3>{away_team}</h3>", unsafe_allow_html=True)
+        # Tạo lựa chọn Thắng/Hòa/Thua
+        options = [f"{home_team} Thắng", "Hòa", f"{away_team} Thắng"]
+        
+        st.markdown(f"**Dự đoán kết quả trận {home_team} vs {away_team}:**")
+        predicted_res = st.radio("Chọn 1 kết quả:", options, horizontal=True)
             
         if st.button("💾 CHỐT DỰ ĐOÁN!", use_container_width=True):
             now = datetime.now().strftime("%d/%m %H:%M")
-            c.execute("REPLACE INTO predictions (name, match, home_score, away_score, timestamp) VALUES (?,?,?,?,?)", 
-                      (user_login, selected_match, home_s, away_s, now))
+            c.execute("REPLACE INTO predictions (name, match, predicted_result, timestamp) VALUES (?,?,?,?)", 
+                      (user_login, selected_match, predicted_res, now))
             conn.commit()
-            st.success(f"🎯 Đã lưu: {home_team} {home_s} - {away_s} {away_team}")
+            st.success(f"🎯 Đã lưu dự đoán: **{predicted_res}** cho trận {selected_match}")
             st.balloons()
     else:
         st.info("👈 Vui lòng nhập đúng mã PIN ở thanh bên trái để chốt kèo.")
@@ -125,36 +108,29 @@ with tab1:
 # ----------------- TAB 2: XEM KÈO ANH EM -----------------
 with tab2:
     st.subheader("👀 Xem anh em đang nằm cửa nào")
-    df_all = pd.read_sql_query("SELECT name as 'Người chơi', match as 'Trận đấu', home_score || ' - ' || away_score as 'Tỉ số', timestamp as 'Giờ chốt' FROM predictions ORDER BY timestamp DESC", conn)
+    df_all = pd.read_sql_query("SELECT name as 'Người chơi', match as 'Trận đấu', predicted_result as 'Dự đoán', timestamp as 'Giờ chốt' FROM predictions ORDER BY timestamp DESC", conn)
     st.dataframe(df_all, use_container_width=True)
 
-# ----------------- TAB 3: BẢNG XẾP HẠNG TÍNH ĐIỂM -----------------
+# ----------------- TAB 3: BẢNG XẾP HẠNG -----------------
 with tab3:
     st.subheader("🏆 Bảng Xếp Hạng Tổng Điểm")
     
-    # Lấy dự đoán và kết quả thực tế
     preds = pd.read_sql_query("SELECT * FROM predictions", conn)
     results = pd.read_sql_query("SELECT * FROM match_results", conn)
     
     if not results.empty and not preds.empty:
-        # Gộp bảng dự đoán với bảng kết quả
-        merged = pd.merge(preds, results, on="match", suffixes=('_pred', '_actual'))
+        merged = pd.merge(preds, results, on="match", how="left")
+        merged['points'] = merged.apply(lambda row: calculate_points(row['predicted_result'], row['actual_result']), axis=1)
         
-        # Tính điểm cho từng dòng
-        merged['points'] = merged.apply(lambda row: calculate_points(row['home_score_pred'], row['away_score_pred'], row['home_score_actual'], row['away_score_actual']), axis=1)
-        
-        # Tổng hợp điểm theo người chơi
         leaderboard = merged.groupby('name')['points'].sum().reset_index()
         leaderboard = leaderboard.sort_values(by='points', ascending=False)
         leaderboard.columns = ['Người chơi', 'Tổng Điểm']
         
-        # Hiển thị
         st.table(leaderboard.reset_index(drop=True))
         
-        # Hiển thị chi tiết trận nào được mấy điểm
-        with st.expander("🔍 Bấm vào đây để xem chi tiết điểm từng trận"):
-            detail_df = merged[['name', 'match', 'home_score_pred', 'away_score_pred', 'home_score_actual', 'away_score_actual', 'points']]
-            detail_df.columns = ['Người chơi', 'Trận đấu', 'Dự đoán (Nhà)', 'Dự đoán (Khách)', 'KQ (Nhà)', 'KQ (Khách)', 'Điểm nhận được']
+        with st.expander("🔍 Bấm vào đây để xem chi tiết kết quả từng trận"):
+            detail_df = merged[['name', 'match', 'predicted_result', 'actual_result', 'points']]
+            detail_df.columns = ['Người chơi', 'Trận đấu', 'Dự đoán', 'Kết quả thực tế', 'Điểm']
             st.dataframe(detail_df, use_container_width=True)
     else:
         st.info("Chưa có trận đấu nào kết thúc hoặc chưa có dữ liệu tính điểm.")
@@ -163,7 +139,7 @@ with tab3:
 with tab4:
     if is_logged_in:
         st.subheader("⚙️ Thay đổi mã PIN cá nhân")
-        new_pin = st.text_input("Nhập mã PIN mới (khuyến nghị 4 số):", type="password")
+        new_pin = st.text_input("Nhập mã PIN mới:", type="password")
         confirm_pin = st.text_input("Nhập lại mã PIN mới:", type="password")
         
         if st.button("Đổi PIN"):
@@ -176,32 +152,32 @@ with tab4:
     else:
         st.warning("Vui lòng đăng nhập để đổi PIN.")
 
-# ----------------- TAB 5: ADMIN (Cập nhật kết quả thật) -----------------
+# ----------------- TAB 5: ADMIN -----------------
 with tab5:
-    st.subheader("👑 Khu vực quản trị (Chỉ dành cho người tạo game)")
+    st.subheader("👑 Khu vực quản trị (Dành cho Admin cập nhật kết quả)")
     admin_pass = st.text_input("Nhập mật khẩu Admin:", type="password")
     
-    if admin_pass == "admin123": # <--- BẠN CÓ THỂ ĐỔI MẬT KHẨU ADMIN TẠI ĐÂY
+    if admin_pass == "admin123":
         st.success("Xác thực Admin thành công!")
-        
         st.write("Cập nhật kết quả trận đấu thực tế để hệ thống tính điểm:")
         
-        # Tạo dropdown chứa TẤT CẢ các trận từ MATCH_DATA
         all_matches_flat = [match for matches in MATCH_DATA.values() for match in matches]
         admin_match = st.selectbox("Chọn trận đã đá xong:", all_matches_flat)
         
-        colA, colB = st.columns(2)
-        with colA: real_home = st.number_input("Tỉ số thực tế (Chủ nhà)", min_value=0, step=1, key="real_home")
-        with colB: real_away = st.number_input("Tỉ số thực tế (Đội khách)", min_value=0, step=1, key="real_away")
+        a_home, a_away = admin_match.split(" vs ")
+        admin_options = [f"{a_home} Thắng", "Hòa", f"{a_away} Thắng"]
+        
+        st.markdown("**Kết quả thực tế là:**")
+        real_res = st.radio("Chọn kết quả đúng:", admin_options, horizontal=True, key="admin_radio")
         
         if st.button("Lưu Kết Quả Trận Này"):
-            c.execute("REPLACE INTO match_results (match, home_score, away_score) VALUES (?,?,?)", (admin_match, real_home, real_away))
+            c.execute("REPLACE INTO match_results (match, actual_result) VALUES (?,?)", (admin_match, real_res))
             conn.commit()
-            st.success(f"Đã cập nhật kết quả: {admin_match} ({real_home} - {real_away})")
+            st.success(f"Đã cập nhật kết quả trận {admin_match} là: {real_res}")
             
         st.markdown("---")
-        st.write("Các trận đã có kết quả:")
-        df_results = pd.read_sql_query("SELECT match as 'Trận', home_score as 'Nhà', away_score as 'Khách' FROM match_results", conn)
-        st.dataframe(df_results)
+        st.write("Các trận đã chốt kết quả:")
+        df_results = pd.read_sql_query("SELECT match as 'Trận', actual_result as 'Kết quả' FROM match_results", conn)
+        st.dataframe(df_results, use_container_width=True)
     elif admin_pass:
         st.error("Sai mật khẩu Admin!")
