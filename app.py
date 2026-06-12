@@ -3,27 +3,28 @@ import pandas as pd
 import sqlite3
 from datetime import datetime
 
-# --- DATABASE CHUYÊN NGHIỆP ---
-conn = sqlite3.connect('wc2026_pro_v11.db', check_same_thread=False)
+# --- KẾT NỐI DATABASE ---
+conn = sqlite3.connect('wc2026_final.db', check_same_thread=False)
 c = conn.cursor()
 c.execute('CREATE TABLE IF NOT EXISTS users (name TEXT PRIMARY KEY, pin TEXT)')
-c.execute('CREATE TABLE IF NOT EXISTS preds (name TEXT, match_id TEXT, res_1x2 TEXT, h_s INTEGER, a_s INTEGER, UNIQUE(name, match_id))')
-c.execute('CREATE TABLE IF NOT EXISTS results (match_id TEXT PRIMARY KEY, actual_1x2 TEXT, actual_h INTEGER, actual_a INTEGER)')
+c.execute('CREATE TABLE IF NOT EXISTS preds (name TEXT, match_id TEXT, res TEXT, h_s INTEGER, a_s INTEGER, UNIQUE(name, match_id))')
+c.execute('CREATE TABLE IF NOT EXISTS results (match_id TEXT PRIMARY KEY, actual_res TEXT, actual_h INTEGER, actual_a INTEGER)')
 conn.commit()
 
-# --- CẤU HÌNH TRẬN ĐẤU (Bảng, Cờ, Thời gian) ---
-FLAGS = {"Mexico": "🇲🇽", "South Africa": "🇿🇦", "South Korea": "🇰🇷", "Czechia": "🇨🇿", "Brazil": "🇧🇷", "Morocco": "🇲🇦"}
+# --- DỮ LIỆU TRẬN ĐẤU THỰC TẾ (WC 2026) ---
+# Dữ liệu này được cập nhật theo lịch thi đấu thực tế
 MATCHES = [
     {"id": "M1", "group": "Bảng A", "time": "12/06 02:00", "home": "Mexico", "away": "South Africa", "flag_h": "🇲🇽", "flag_a": "🇿🇦"},
     {"id": "M2", "group": "Bảng A", "time": "12/06 20:00", "home": "South Korea", "away": "Czechia", "flag_h": "🇰🇷", "flag_a": "🇨🇿"}
 ]
 
-st.set_page_config(page_title="WC 2026 Pro", layout="wide")
-st.title("⚽ WORLD CUP 2026 BETTING PRO")
+st.set_page_config(page_title="WC 2026 PRO", layout="wide")
 
-# --- LOGIN ---
+# --- HỆ THỐNG ĐĂNG NHẬP ---
 if 'user' not in st.session_state: st.session_state.user = None
+
 if not st.session_state.user:
+    st.title("⚽ WC 2026 - LOGIN")
     u_list = pd.read_sql("SELECT * FROM users", conn)
     user = st.selectbox("Chọn tên:", u_list['name'].tolist() if not u_list.empty else [])
     pin = st.text_input("Nhập PIN:", type="password")
@@ -32,46 +33,49 @@ if not st.session_state.user:
             st.session_state.user = user; st.rerun()
     st.stop()
 
-# --- APP CHÍNH ---
-st.sidebar.write(f"Người chơi: **{st.session_state.user}**")
+# --- GIAO DIỆN CHÍNH ---
+st.sidebar.info(f"Xin chào: **{st.session_state.user}**")
 if st.sidebar.button("Đăng xuất"): st.session_state.user = None; st.rerun()
 
-t1, t2, t3, t4 = st.tabs(["🎮 Đặt Cược", "📊 Bảng Điểm", "⚙️ Tài Khoản", "👑 Admin"])
+t1, t2, t3 = st.tabs(["🎮 ĐẶT CƯỢC", "📊 BẢNG ĐIỂM", "👑 ADMIN"])
 
 with t1:
-    st.subheader("Lịch thi đấu (Sắp diễn ra)")
+    st.header("Lịch thi đấu & Đặt cược")
     for m in MATCHES:
         with st.container(border=True):
             c1, c2, c3 = st.columns([2, 1, 2])
             c1.markdown(f"### {m['flag_h']} {m['home']}")
-            c2.write(f"**{m['group']}**\n{m['time']}")
+            c2.markdown(f"**{m['group']}**\n{m['time']}")
             c3.markdown(f"### {m['away']} {m['flag_a']}")
             
-            res = st.radio(f"Kết quả 1X2 {m['id']}:", ["Thắng", "Hòa", "Thua"], horizontal=True, key=f"r_{m['id']}")
-            h_s = st.number_input(f"Bàn thắng {m['home']} ({m['id']})", min_value=0, key=f"h_{m['id']}")
-            a_s = st.number_input(f"Bàn thắng {m['away']} ({m['id']})", min_value=0, key=f"a_{m['id']}")
+            r, h, a = st.columns(3)
+            res = r.radio(f"Kết quả 1X2 {m['id']}:", ["Thắng", "Hòa", "Thua"], horizontal=True, key=f"r_{m['id']}")
+            h_s = h.number_input(f"Tỉ số {m['home']}", min_value=0, key=f"h_{m['id']}")
+            a_s = a.number_input(f"Tỉ số {m['away']}", min_value=0, key=f"a_{m['id']}")
             
-            if st.button(f"Gửi kèo {m['id']}"):
+            if st.button(f"Lưu kèo {m['id']}"):
                 c.execute("REPLACE INTO preds VALUES (?,?,?,?,?)", (st.session_state.user, m['id'], res, h_s, a_s))
-                conn.commit(); st.success("Đã ghi nhận kèo cả tỉ số và 1X2!")
+                conn.commit(); st.success("Đã ghi nhận!")
 
 with t2:
-    st.subheader("Bảng Xếp Hạng & So Sánh")
+    st.header("Bảng xếp hạng trực quan")
     preds = pd.read_sql("SELECT * FROM preds", conn)
     res = pd.read_sql("SELECT * FROM results", conn)
+    
     if not res.empty:
         merged = pd.merge(preds, res, on="match_id")
-        # Tính điểm: 1X2 = 3đ, Tỉ số = 5đ
-        merged['points'] = (merged['res_1x2'] == merged['actual_1x2']).astype(int) * 3 + \
-                           ((merged['h_s'] == merged['actual_h']) & (merged['a_s'] == merged['actual_a'])).astype(int) * 5
-        st.table(merged.groupby('name')['points'].sum().sort_values(ascending=False))
+        merged['pts'] = ((merged['res'] == merged['actual_res']).astype(int) * 3) + \
+                        ((merged['h_s'] == merged['actual_h']) & (merged['a_s'] == merged['actual_a'])).astype(int) * 5
+        rank = merged.groupby('name')['pts'].sum().sort_values(ascending=False).reset_index()
+        st.table(rank)
+    else: st.info("Chưa có dữ liệu điểm.")
 
-with t4:
-    if st.text_input("Mật khẩu Admin:", type="password") == "admin123":
-        m_id = st.selectbox("Trận:", [m['id'] for m in MATCHES])
-        act_res = st.selectbox("Kết quả thực tế 1X2:", ["Thắng", "Hòa", "Thua"])
-        act_h = st.number_input("Bàn thắng thực tế đội Nhà", min_value=0)
-        act_a = st.number_input("Bàn thắng thực tế đội Khách", min_value=0)
-        if st.button("Cập nhật kết quả trận"):
-            c.execute("REPLACE INTO results VALUES (?,?,?,?)", (m_id, act_res, act_h, act_a))
-            conn.commit(); st.success("Cập nhật thành công!")
+with t3:
+    if st.text_input("Admin PIN:", type="password") == "admin123":
+        m_id = st.selectbox("Chọn trận:", [m['id'] for m in MATCHES])
+        r = st.selectbox("Kết quả 1X2:", ["Thắng", "Hòa", "Thua"])
+        h = st.number_input("Tỉ số thực tế (Nhà)", min_value=0)
+        a = st.number_input("Tỉ số thực tế (Khách)", min_value=0)
+        if st.button("Cập nhật kết quả"):
+            c.execute("REPLACE INTO results VALUES (?,?,?,?)", (m_id, r, h, a))
+            conn.commit(); st.success("Đã cập nhật!")
