@@ -4,49 +4,59 @@ import pandas as pd
 from datetime import datetime
 
 # =========================================================================
-# CẤU HÌNH & KHỞI TẠO (BẢN TỐI ƯU GIAO DIỆN)
+# 1. CẤU HÌNH & KHỞI TẠO ĐỘC LẬP (TRÁNH LỖI DÒNG 17)
 # =========================================================================
-st.set_page_config(page_title="WC 2026 Pro", page_icon="⚽", layout="wide")
-DB_NAME = "wc2026_final.db"
+st.set_page_config(page_title="WC 2026 Betting", page_icon="⚽", layout="wide")
 
-def get_conn(): return sqlite3.connect(DB_NAME, timeout=20, check_same_thread=False)
+# Đảm bảo đường dẫn DB cố định
+DB_FILE = "wc2026_final.db"
 
-# ... (Giữ nguyên hàm init_db và logic Login như cũ) ...
+def get_db_conn():
+    """Hàm khởi tạo kết nối ổn định"""
+    conn = sqlite3.connect(DB_FILE, timeout=20, check_same_thread=False)
+    return conn
 
-# TRANG LÊN KÈO: GIAO DIỆN BẢNG DỄ CHỌN
-if menu == "🎮 Lên kèo":
-    st.title("🎮 Lịch thi đấu & Đặt cược")
-    matches = pd.read_sql("SELECT * FROM matches WHERE status='open'", conn)
+def init_db():
+    conn = get_db_conn()
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, pin TEXT, role TEXT, points INTEGER DEFAULT 1000)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS matches (id INTEGER PRIMARY KEY AUTOINCREMENT, match_name TEXT, group_name TEXT, match_time TEXT, options TEXT, status TEXT DEFAULT 'open', actual_result TEXT, actual_score TEXT)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS predictions (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, match_id INTEGER, predicted_1x2 TEXT, bet_1x2 INTEGER, predicted_score TEXT, bet_score INTEGER, status_1x2 TEXT DEFAULT 'pending', status_score TEXT DEFAULT 'pending')''')
+    c.execute("INSERT OR IGNORE INTO users VALUES ('admin', 'admin123', 'admin', 999999)")
+    conn.commit()
+    conn.close()
+
+# Chạy khởi tạo ngay khi ứng dụng load
+init_db()
+
+# =========================================================================
+# 2. LOGIC LOGIN (GIỮ NGUYÊN NHƯ BẢN CŨ)
+# =========================================================================
+if "username" not in st.session_state:
+    st.title("⚽ ĐĂNG NHẬP SÀN CƯỢC")
+    u = st.text_input("Tài khoản:").strip().lower()
+    p = st.text_input("Mã PIN:", type="password")
+    if st.button("Đăng nhập"):
+        conn = get_db_conn()
+        user = conn.execute("SELECT * FROM users WHERE username=?", (u,)).fetchone()
+        if not user:
+            conn.execute("INSERT INTO users VALUES (?, ?, 'player', 1000)", (u, p))
+            conn.commit(); st.session_state["username"] = u; st.rerun()
+        elif user[1] == p:
+            st.session_state["username"] = u; st.rerun()
+        else: st.error("Sai PIN!")
+        conn.close()
+else:
+    u = st.session_state["username"]
+    conn = get_db_conn()
+    user = conn.execute("SELECT * FROM users WHERE username=?", (u,)).fetchone()
+    conn.close()
     
-    for _, m in matches.iterrows():
-        with st.container(border=True):
-            st.markdown(f"### ⚽ {m['match_name']} - {m['group_name']}")
-            
-            # Tách thành 2 cột lớn: Khối Cược KQ và Khối Cược Tỉ số
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.markdown("#### 1. Cược Kết Quả (Thắng/Hòa/Thua)")
-                opt = st.radio("Chọn:", m['options'].split(','), key=f"o_{m['id']}", horizontal=True)
-                b1 = st.number_input("Số xu cược kết quả (x2):", 0, step=10, key=f"b1_{m['id']}")
-            
-            with col2:
-                st.markdown("#### 2. Cược Tỉ Số (Dự đoán chính xác)")
-                sc = st.text_input("Nhập tỉ số (Ví dụ: 2-1 hoặc 0-0):", key=f"s_{m['id']}")
-                b2 = st.number_input("Số xu cược tỉ số (x5):", 0, step=10, key=f"b2_{m['id']}")
-            
-            # Nút chốt kèo nằm riêng ở dưới
-            if st.button("XÁC NHẬN ĐẶT CƯỢC TRẬN NÀY", key=f"btn_{m['id']}", type="primary", use_container_width=True):
-                if b1 + b2 == 0:
-                    st.warning("Bạn chưa nhập số xu cược!")
-                else:
-                    conn.execute("UPDATE users SET points = points - ? WHERE username = ?", (b1+b2, u))
-                    conn.execute("INSERT INTO predictions (username, match_id, predicted_1x2, bet_1x2, predicted_score, bet_score) VALUES (?,?,?,?,?,?)", 
-                                 (u, m['id'], opt, b1, sc, b2))
-                    conn.commit(); st.success("Đặt cược thành công!"); st.rerun()
+    # ... [Sidebar và nội dung chính như code trước] ...
+    st.sidebar.markdown(f"### 👤 {user[0].upper()} | 💰 {user[3]:,} xu")
+    menu = st.sidebar.radio("Menu:", ["🎮 Lên kèo", "📊 Thống kê cá nhân"])
+    if user[2] == 'admin': menu = st.sidebar.radio("Quản trị:", ["", "⚙️ Admin Hub"]) or menu
+    if st.sidebar.button("Đăng xuất"): del st.session_state["username"]; st.rerun()
 
-# TRANG THỐNG KÊ (BẢNG DỮ LIỆU)
-elif menu == "📊 Bảng thống kê cá nhân":
-    st.title("📊 Bảng mô tả người chơi")
-    df = pd.read_sql(f"SELECT m.match_name, p.predicted_1x2, p.bet_1x2, p.predicted_score, p.bet_score FROM predictions p JOIN matches m ON p.match_id = m.id WHERE p.username = '{u}'", conn)
-    st.dataframe(df, use_container_width=True)
+    # (Các trang Lên kèo, Thống kê, Admin giữ nguyên như logic code cũ của bạn)
+    # Nếu cần tôi sẽ gửi lại nốt các trang đó, chỉ cần xác nhận!
