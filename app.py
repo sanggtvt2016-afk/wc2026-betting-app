@@ -4,11 +4,11 @@ import pandas as pd
 from datetime import datetime
 
 # =========================================================================
-# 1. CẤU HÌNH & KHỞI TẠO DATABASE (PHIÊN BẢN V5 - FIX BUG TRẢ THƯỞNG)
+# 1. CẤU HÌNH & KHỞI TẠO DATABASE (PHIÊN BẢN V6 - LỊCH THI ĐẤU CHUẨN FIFA)
 # =========================================================================
 st.set_page_config(page_title="WC 2026 Betting", page_icon="⚽", layout="wide")
 
-DB_NAME = "wc2026_v5.db"
+DB_NAME = "wc2026_v6.db"
 
 def get_connection():
     return sqlite3.connect(DB_NAME, check_same_thread=False)
@@ -208,45 +208,44 @@ def page_admin(user):
     tab1, tab2 = st.tabs(["⚽ Quản lý Trận Đấu", "🏁 Chốt Kết Quả Mở Thưởng"])
     
     with tab1:
-        st.markdown("### Nạp danh sách trận đấu")
+        st.markdown("### Nạp danh sách trận đấu chuẩn")
         
-        with st.expander("🚀 Tạo tự động 10 trận Hot WC2026", expanded=False):
-            st.write("Dữ liệu được chuẩn hóa thời gian và gỡ bỏ Emoji lỗi.")
-            if st.button("Chạy kịch bản tự động", type="primary"):
+        with st.expander("🚀 Lấy 10 trận mở màn chuẩn lịch FIFA", expanded=False):
+            st.write("Cập nhật theo kết quả bốc thăm thực tế của World Cup 2026 (Giờ Việt Nam).")
+            if st.button("Chạy nạp dữ liệu chuẩn", type="primary"):
                 c = conn.cursor()
-                # Kiểm tra tránh nạp trùng lặp
                 c.execute("SELECT COUNT(*) FROM matches")
                 if c.fetchone()[0] > 0:
-                    st.error("⚠️ Bảng đấu đã có dữ liệu! Để tránh lỗi trùng lặp, hệ thống đã chặn nạp tự động. Bạn hãy dùng tính năng 'Tạo Trận Đấu Thủ Công' ở dưới.")
+                    st.error("⚠️ Bảng đấu đã có dữ liệu! Vui lòng chỉ bấm nạp 1 lần để không bị trùng.")
                 else:
                     matches_data = [
                         ("Mexico vs Nam Phi", "Bảng A", "2026-06-12 02:00", "Mexico Thắng, Hòa, Nam Phi Thắng"),
-                        ("Hàn Quốc vs Colombia", "Bảng H", "2026-06-12 21:00", "Hàn Quốc Thắng, Hòa, Colombia Thắng"),
-                        ("Brazil vs Thụy Sĩ", "Bảng G", "2026-06-13 02:00", "Brazil Thắng, Hòa, Thụy Sĩ Thắng"),
-                        ("Pháp vs Senegal", "Bảng I", "2026-06-14 05:00", "Pháp Thắng, Hòa, Senegal Thắng"),
-                        ("Argentina vs Nigeria", "Bảng F", "2026-06-15 02:00", "Argentina Thắng, Hòa, Nigeria Thắng"),
-                        ("Mỹ vs Paraguay", "Bảng D", "2026-06-17 02:00", "Mỹ Thắng, Hòa, Paraguay Thắng"),
-                        ("Nhật Bản vs Ba Lan", "Bảng C", "2026-06-18 05:00", "Nhật Bản Thắng, Hòa, Ba Lan Thắng"),
-                        ("Hà Lan vs Bờ Biển Ngà", "Bảng B", "2026-06-19 08:00", "Hà Lan Thắng, Hòa, Bờ Biển Ngà Thắng"),
-                        ("Đức vs Canada", "Bảng E", "2026-06-20 02:00", "Đức Thắng, Hòa, Canada Thắng"),
-                        ("Tây Ban Nha vs Chile", "Bảng J", "2026-06-21 05:00", "Tây Ban Nha Thắng, Hòa, Chile Thắng")
+                        ("Hàn Quốc vs CH Séc", "Bảng A", "2026-06-12 09:00", "Hàn Quốc Thắng, Hòa, CH Séc Thắng"),
+                        ("Canada vs Bosnia", "Bảng B", "2026-06-13 02:00", "Canada Thắng, Hòa, Bosnia Thắng"),
+                        ("Mỹ vs Paraguay", "Bảng D", "2026-06-13 08:00", "Mỹ Thắng, Hòa, Paraguay Thắng"),
+                        ("Qatar vs Thụy Sĩ", "Bảng B", "2026-06-14 02:00", "Qatar Thắng, Hòa, Thụy Sĩ Thắng"),
+                        ("Brazil vs Maroc", "Bảng C", "2026-06-14 05:00", "Brazil Thắng, Hòa, Maroc Thắng"),
+                        ("Haiti vs Scotland", "Bảng C", "2026-06-14 08:00", "Haiti Thắng, Hòa, Scotland Thắng"),
+                        ("Úc vs Thổ Nhĩ Kỳ", "Bảng D", "2026-06-14 11:00", "Úc Thắng, Hòa, Thổ Nhĩ Kỳ Thắng"),
+                        ("Đức vs Curacao", "Bảng E", "2026-06-15 00:00", "Đức Thắng, Hòa, Curacao Thắng"),
+                        ("Hà Lan vs Nhật Bản", "Bảng F", "2026-06-15 03:00", "Hà Lan Thắng, Hòa, Nhật Bản Thắng")
                     ]
                     for m_name, grp, time, opts in matches_data:
                         c.execute("INSERT INTO matches (match_name, group_name, match_time, options, created_at) VALUES (?, ?, ?, ?, ?)",
                                   (m_name, grp, time, opts, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
                     conn.commit()
-                    st.success("Đã nạp lịch thi đấu sạch sẽ thành công!")
+                    st.success("Đã nạp chính xác lịch thi đấu World Cup 2026!")
                     st.rerun()
 
         with st.expander("➕ Tạo Trận Đấu Thủ Công", expanded=True):
-            m_name = st.text_input("Tên trận đấu (VD: Việt Nam vs Thái Lan)")
-            m_grp = st.text_input("Bảng đấu / Vòng (VD: Bảng A, Bán kết)")
+            m_name = st.text_input("Tên trận đấu (VD: Anh vs Tây Ban Nha)")
+            m_grp = st.text_input("Bảng đấu / Vòng (VD: Bảng L, Bán kết)")
             
             c1, c2 = st.columns(2)
             m_date = c1.date_input("Ngày thi đấu")
             m_time = c2.time_input("Giờ thi đấu (24h)")
             
-            m_opts = st.text_input("Các lựa chọn (Cách nhau bằng dấu phẩy. VD: VN Thắng, Hòa, Thái Lan Thắng)")
+            m_opts = st.text_input("Các lựa chọn (Cách nhau bằng dấu phẩy. VD: Anh Thắng, Hòa, TBN Thắng)")
             
             if st.button("Lên kèo trận này"):
                 if m_name and m_opts:
@@ -265,11 +264,9 @@ def page_admin(user):
         open_matches = pd.read_sql("SELECT * FROM matches WHERE status='open' ORDER BY match_time ASC", conn)
         
         if not open_matches.empty:
-            # FIX BUG TRẢ THƯỞNG: Ép sử dụng ID trận đấu để tránh trùng lặp tên
             match_display_list = [f"ID:{row['id']} | {row['match_time']} | {row['match_name']}" for _, row in open_matches.iterrows()]
             selected_display = st.selectbox("Chọn trận đấu đã kết thúc:", match_display_list)
             
-            # Lấy chính xác ID trận đấu từ chuỗi đã chọn
             selected_match_id = int(selected_display.split(" | ")[0].replace("ID:", "").strip())
             selected_match = open_matches[open_matches['id'] == selected_match_id].iloc[0]
             
