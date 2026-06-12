@@ -4,6 +4,78 @@ import pandas as pd
 from datetime import datetime
 
 # =========================================================================
+# CẤU HÌNH DATABASE (Sử dụng code cũ của bạn)
+# =========================================================================
+st.set_page_config(page_title="WC 2026 Betting", page_icon="⚽", layout="wide")
+DB_NAME = "wc2026_v8.db"
+
+def get_connection(): return sqlite3.connect(DB_NAME, timeout=10, check_same_thread=False)
+
+# ... (Giữ nguyên các hàm khởi tạo DB của bạn) ...
+# (Đảm bảo bạn vẫn giữ lại các hàm init_db, get_user, create_user... như code cũ bạn đã gửi)
+
+# =========================================================================
+# TRANG ADMIN: BỔ SUNG TÍNH NĂNG SỬA KẾT QUẢ (UNDO)
+# =========================================================================
+def page_admin(user):
+    if user[2] != 'admin':
+        st.error("🚨 Chỉ Quản trị viên mới được vào đây.")
+        return
+
+    st.title("⚙️ Trung Tâm Điều Hành")
+    conn = get_connection()
+    
+    # Chia tab để quản lý trận đấu
+    tab1, tab2 = st.tabs(["⚽ Nạp & Quản lý Trận Đấu", "🏁 Chốt/Sửa Kết Quả"])
+    
+    with tab2:
+        st.subheader("🏁 Chốt Kết Quả hoặc Undo (Sửa lỗi)")
+        
+        # Lấy tất cả trận đấu (cả đang mở và đã đóng)
+        all_matches = pd.read_sql("SELECT * FROM matches ORDER BY match_time ASC", conn)
+        match_display = [f"ID:{row['id']} | {row['match_name']} (Trạng thái: {row['status']})" for _, row in all_matches.iterrows()]
+        selected_display = st.selectbox("Chọn trận cần xử lý:", match_display)
+        
+        match_id = int(selected_display.split(" | ")[0].replace("ID:", "").strip())
+        match_data = all_matches[all_matches['id'] == match_id].iloc[0]
+        
+        if match_data['status'] == 'open':
+            # QUY TRÌNH CHỐT KẾT QUẢ (Như cũ)
+            actual_1x2 = st.selectbox("Đội Thắng / Hòa / Thua:", match_data['options'].split(","))
+            actual_score = st.text_input("Tỉ số thực tế (VD: 2-1):")
+            if st.button("Đóng Trận & Trả Thưởng"):
+                # ... (Giữ nguyên code trả thưởng của bạn) ...
+                st.success("Đã chốt!")
+        else:
+            # TÍNH NĂNG MỚI: UNDO (SỬA LỖI)
+            st.warning(f"Trận này đã đóng với kết quả: {match_data['actual_result']} | Tỉ số: {match_data['actual_score']}")
+            if st.button("HỦY KẾT QUẢ (UNDO) & HOÀN TIỀN", type="primary"):
+                c = conn.cursor()
+                # 1. Thu hồi tiền thắng đã trả
+                c.execute("SELECT username, bet_1x2, bet_score, status_1x2, status_score FROM predictions WHERE match_id=?", (match_id,))
+                for uname, b1, bs, s1, ss in c.fetchall():
+                    refund = 0
+                    if s1 == 'won': refund += b1 * 2
+                    if ss == 'won': refund += bs * 5
+                    if refund > 0:
+                        c.execute("UPDATE users SET points = points - ? WHERE username = ?", (refund, uname))
+                
+                # 2. Reset trạng thái trận đấu và xóa phiếu cược kết quả
+                c.execute("UPDATE matches SET status='open', actual_result=NULL, actual_score=NULL WHERE id=?", (match_id,))
+                c.execute("UPDATE predictions SET status_1x2='pending', status_score='pending' WHERE match_id=?", (match_id,))
+                conn.commit()
+                st.success("Đã hủy kết quả và thu hồi tiền thưởng thành công! Bạn có thể nhập lại.")
+                st.rerun()
+
+    conn.close()
+
+# ... (Các phần còn lại giữ nguyên theo code cũ của bạn) ...
+import streamlit as st
+import sqlite3
+import pandas as pd
+from datetime import datetime
+
+# =========================================================================
 # 1. CẤU HÌNH & KHỞI TẠO DATABASE (PHIÊN BẢN V8 - CHỐNG LỖI LOCK DB & GIAO DIỆN THẺ)
 # =========================================================================
 st.set_page_config(page_title="WC 2026 Betting", page_icon="⚽", layout="wide")
