@@ -4,11 +4,11 @@ import pandas as pd
 from datetime import datetime
 
 # =========================================================================
-# 1. CẤU HÌNH & KHỞI TẠO DATABASE (PHIÊN BẢN V4 - TIME SORTING)
+# 1. CẤU HÌNH & KHỞI TẠO DATABASE (PHIÊN BẢN V5 - FIX BUG TRẢ THƯỞNG)
 # =========================================================================
 st.set_page_config(page_title="WC 2026 Betting", page_icon="⚽", layout="wide")
 
-DB_NAME = "wc2026_v4.db"
+DB_NAME = "wc2026_v5.db"
 
 def get_connection():
     return sqlite3.connect(DB_NAME, check_same_thread=False)
@@ -18,7 +18,6 @@ def init_db():
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, pin TEXT, role TEXT, points INTEGER DEFAULT 1000)''')
     
-    # Định dạng match_time sẽ lưu chuẩn "YYYY-MM-DD HH:MM" để sắp xếp chính xác
     c.execute('''CREATE TABLE IF NOT EXISTS matches (
                     id INTEGER PRIMARY KEY AUTOINCREMENT, match_name TEXT, group_name TEXT, 
                     match_time TEXT, options TEXT, status TEXT DEFAULT 'open', 
@@ -112,7 +111,6 @@ def page_predict(user):
     st.divider()
 
     conn = get_connection()
-    # Lấy và sắp xếp theo chuẩn YYYY-MM-DD HH:MM
     matches = pd.read_sql("SELECT * FROM matches WHERE status='open' ORDER BY match_time ASC", conn)
 
     if matches.empty:
@@ -121,7 +119,6 @@ def page_predict(user):
         current_date_str = ""
         
         for _, match in matches.iterrows():
-            # Tách chuỗi YYYY-MM-DD HH:MM thành Ngày và Giờ
             try:
                 dt_obj = datetime.strptime(match['match_time'], "%Y-%m-%d %H:%M")
                 display_date = dt_obj.strftime("%d/%m/%Y")
@@ -130,13 +127,12 @@ def page_predict(user):
                 display_date = match['match_time']
                 display_time = ""
 
-            # Hiển thị Thanh chia theo ngày
             if display_date != current_date_str:
                 st.markdown(f"<h3 style='color:#f90b6d; margin-top:30px;'>📅 Lịch thi đấu ngày {display_date}</h3>", unsafe_allow_html=True)
                 current_date_str = display_date
 
             with st.container(border=True):
-                st.subheader(f"{match['match_name']}")
+                st.subheader(f"Mã #{match['id']}: {match['match_name']}")
                 st.caption(f"🕒 Khởi tranh: {display_time} | 📍 {match['group_name']}")
                 
                 options = [opt.strip() for opt in match['options'].split(",")]
@@ -168,7 +164,7 @@ def page_predict(user):
                             if c.fetchone():
                                 st.error("❌ Bạn đã lên kèo trận này rồi, không thể sửa!")
                             else:
-                                update_user_points(username, -total_bet, f"Cược trận {match['match_name']}")
+                                update_user_points(username, -total_bet, f"Cược trận #{match['id']}")
                                 c.execute("""INSERT INTO predictions (username, match_id, predicted_1x2, bet_1x2, predicted_score, bet_score, created_at) 
                                              VALUES (?, ?, ?, ?, ?, ?, ?)""", 
                                           (username, match['id'], selected_1x2, bet_1x2, predicted_score.strip(), bet_score, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
@@ -215,44 +211,46 @@ def page_admin(user):
         st.markdown("### Nạp danh sách trận đấu")
         
         with st.expander("🚀 Tạo tự động 10 trận Hot WC2026", expanded=False):
-            st.write("Dữ liệu được chuẩn hóa thời gian để sắp xếp bảng kèo đẹp mắt.")
+            st.write("Dữ liệu được chuẩn hóa thời gian và gỡ bỏ Emoji lỗi.")
             if st.button("Chạy kịch bản tự động", type="primary"):
-                # Lưu chuẩn thời gian YYYY-MM-DD HH:MM
-                matches_data = [
-                    ("🇲🇽 Mexico vs 🇿🇦 Nam Phi", "Bảng A", "2026-06-12 02:00", "🇲🇽 Mexico Thắng,Hòa,🇿🇦 Nam Phi Thắng"),
-                    ("🇰🇷 Hàn Quốc vs 🇨🇴 Colombia", "Bảng H", "2026-06-12 21:00", "🇰🇷 Hàn Quốc Thắng,Hòa,🇨🇴 Colombia Thắng"),
-                    ("🇧🇷 Brazil vs 🇨🇭 Thụy Sĩ", "Bảng G", "2026-06-13 02:00", "🇧🇷 Brazil Thắng,Hòa,🇨🇭 Thụy Sĩ Thắng"),
-                    ("🇫🇷 Pháp vs 🇸🇳 Senegal", "Bảng I", "2026-06-14 05:00", "🇫🇷 Pháp Thắng,Hòa,🇸🇳 Senegal Thắng"),
-                    ("🇦🇷 Argentina vs 🇳🇬 Nigeria", "Bảng F", "2026-06-15 02:00", "🇦🇷 Argentina Thắng,Hòa,🇳🇬 Nigeria Thắng"),
-                    ("🇺🇸 Mỹ vs 🇵🇾 Paraguay", "Bảng D", "2026-06-17 02:00", "🇺🇸 Mỹ Thắng,Hòa,🇵🇾 Paraguay Thắng"),
-                    ("🇯🇵 Nhật Bản vs 🇵🇱 Ba Lan", "Bảng C", "2026-06-18 05:00", "🇯🇵 Nhật Bản Thắng,Hòa,🇵🇱 Ba Lan Thắng"),
-                    ("🇳🇱 Hà Lan vs 🇨🇮 Bờ Biển Ngà", "Bảng B", "2026-06-19 08:00", "🇳🇱 Hà Lan Thắng,Hòa,🇨🇮 Bờ Biển Ngà Thắng"),
-                    ("🇩🇪 Đức vs 🇨🇦 Canada", "Bảng E", "2026-06-20 02:00", "🇩🇪 Đức Thắng,Hòa,🇨🇦 Canada Thắng"),
-                    ("🇪🇸 Tây Ban Nha vs 🇨🇱 Chile", "Bảng J", "2026-06-21 05:00", "🇪🇸 Tây Ban Nha Thắng,Hòa,🇨🇱 Chile Thắng")
-                ]
                 c = conn.cursor()
-                for m_name, grp, time, opts in matches_data:
-                    c.execute("INSERT INTO matches (match_name, group_name, match_time, options, created_at) VALUES (?, ?, ?, ?, ?)",
-                              (m_name, grp, time, opts, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
-                conn.commit()
-                st.success("Đã nạp lịch thi đấu tự động thành công!")
-                st.rerun()
+                # Kiểm tra tránh nạp trùng lặp
+                c.execute("SELECT COUNT(*) FROM matches")
+                if c.fetchone()[0] > 0:
+                    st.error("⚠️ Bảng đấu đã có dữ liệu! Để tránh lỗi trùng lặp, hệ thống đã chặn nạp tự động. Bạn hãy dùng tính năng 'Tạo Trận Đấu Thủ Công' ở dưới.")
+                else:
+                    matches_data = [
+                        ("Mexico vs Nam Phi", "Bảng A", "2026-06-12 02:00", "Mexico Thắng, Hòa, Nam Phi Thắng"),
+                        ("Hàn Quốc vs Colombia", "Bảng H", "2026-06-12 21:00", "Hàn Quốc Thắng, Hòa, Colombia Thắng"),
+                        ("Brazil vs Thụy Sĩ", "Bảng G", "2026-06-13 02:00", "Brazil Thắng, Hòa, Thụy Sĩ Thắng"),
+                        ("Pháp vs Senegal", "Bảng I", "2026-06-14 05:00", "Pháp Thắng, Hòa, Senegal Thắng"),
+                        ("Argentina vs Nigeria", "Bảng F", "2026-06-15 02:00", "Argentina Thắng, Hòa, Nigeria Thắng"),
+                        ("Mỹ vs Paraguay", "Bảng D", "2026-06-17 02:00", "Mỹ Thắng, Hòa, Paraguay Thắng"),
+                        ("Nhật Bản vs Ba Lan", "Bảng C", "2026-06-18 05:00", "Nhật Bản Thắng, Hòa, Ba Lan Thắng"),
+                        ("Hà Lan vs Bờ Biển Ngà", "Bảng B", "2026-06-19 08:00", "Hà Lan Thắng, Hòa, Bờ Biển Ngà Thắng"),
+                        ("Đức vs Canada", "Bảng E", "2026-06-20 02:00", "Đức Thắng, Hòa, Canada Thắng"),
+                        ("Tây Ban Nha vs Chile", "Bảng J", "2026-06-21 05:00", "Tây Ban Nha Thắng, Hòa, Chile Thắng")
+                    ]
+                    for m_name, grp, time, opts in matches_data:
+                        c.execute("INSERT INTO matches (match_name, group_name, match_time, options, created_at) VALUES (?, ?, ?, ?, ?)",
+                                  (m_name, grp, time, opts, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+                    conn.commit()
+                    st.success("Đã nạp lịch thi đấu sạch sẽ thành công!")
+                    st.rerun()
 
         with st.expander("➕ Tạo Trận Đấu Thủ Công", expanded=True):
-            m_name = st.text_input("Tên trận đấu (VD: 🇻🇳 Việt Nam vs 🇹🇭 Thái Lan)")
+            m_name = st.text_input("Tên trận đấu (VD: Việt Nam vs Thái Lan)")
             m_grp = st.text_input("Bảng đấu / Vòng (VD: Bảng A, Bán kết)")
             
             c1, c2 = st.columns(2)
             m_date = c1.date_input("Ngày thi đấu")
             m_time = c2.time_input("Giờ thi đấu (24h)")
             
-            m_opts = st.text_input("Các lựa chọn (Cách nhau bằng dấu phẩy. VD: VN Thắng,Hòa,Thái Lan Thắng)")
+            m_opts = st.text_input("Các lựa chọn (Cách nhau bằng dấu phẩy. VD: VN Thắng, Hòa, Thái Lan Thắng)")
             
             if st.button("Lên kèo trận này"):
                 if m_name and m_opts:
-                    # Gộp ngày giờ lại thành chuỗi YYYY-MM-DD HH:MM
                     datetime_str = f"{m_date.strftime('%Y-%m-%d')} {m_time.strftime('%H:%M')}"
-                    
                     c = conn.cursor()
                     c.execute("INSERT INTO matches (match_name, group_name, match_time, options, created_at) VALUES (?, ?, ?, ?, ?)",
                               (m_name, m_grp, datetime_str, m_opts, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
@@ -267,13 +265,13 @@ def page_admin(user):
         open_matches = pd.read_sql("SELECT * FROM matches WHERE status='open' ORDER BY match_time ASC", conn)
         
         if not open_matches.empty:
-            # Format tên dropdown để Admin dễ chọn
-            match_display_list = [f"{row['match_time']} | {row['match_name']}" for _, row in open_matches.iterrows()]
+            # FIX BUG TRẢ THƯỞNG: Ép sử dụng ID trận đấu để tránh trùng lặp tên
+            match_display_list = [f"ID:{row['id']} | {row['match_time']} | {row['match_name']}" for _, row in open_matches.iterrows()]
             selected_display = st.selectbox("Chọn trận đấu đã kết thúc:", match_display_list)
             
-            # Tách chuỗi để lấy đúng ID trận
-            selected_match_name = selected_display.split(" | ")[1]
-            selected_match = open_matches[open_matches['match_name'] == selected_match_name].iloc[0]
+            # Lấy chính xác ID trận đấu từ chuỗi đã chọn
+            selected_match_id = int(selected_display.split(" | ")[0].replace("ID:", "").strip())
+            selected_match = open_matches[open_matches['id'] == selected_match_id].iloc[0]
             
             options_list = [opt.strip() for opt in selected_match['options'].split(",")]
             actual_1x2 = st.selectbox("Đội Thắng / Hòa / Thua:", options_list)
@@ -293,24 +291,24 @@ def page_admin(user):
                     
                     if b_1x2 > 0:
                         if p_1x2 == actual_1x2:
-                            total_win += b_1x2 * 2  # Ăn x2
+                            total_win += b_1x2 * 2 
                             st_1x2 = 'won'
                     else:
                         st_1x2 = 'no_bet'
                     
                     if b_score > 0:
                         if actual_score and p_score and p_score.strip() == actual_score.strip():
-                            total_win += b_score * 5  # Ăn x5
+                            total_win += b_score * 5 
                             st_score = 'won'
                     else:
                         st_score = 'no_bet'
                     
                     if total_win > 0:
-                        update_user_points(uname, total_win, f"Thắng cược trận {selected_match_name}")
+                        update_user_points(uname, total_win, f"Thắng cược trận #{match_id}")
                     c.execute("UPDATE predictions SET status_1x2=?, status_score=? WHERE id=?", (st_1x2, st_score, pred_id))
                     
                 conn.commit()
-                st.success(f"Đã trả thưởng trận {selected_match_name} thành công!")
+                st.success(f"Đã trả thưởng trận #{match_id} thành công!")
                 st.rerun()
         else:
             st.info("Không có trận đấu nào đang chờ chốt kết quả.")
